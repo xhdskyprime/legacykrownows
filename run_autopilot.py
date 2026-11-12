@@ -82,8 +82,18 @@ def scan_pair(predictor, pair_info):
         print(f"  🛑 {label:<16}: Jendela berita High-Impact aktif (Jam {now_utc.hour:02d}:00 UTC). Melewati demi keamanan.")
         return
 
-    # 3. Ambil data candle dari MT5
-    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 250)
+    # 3. Ambil data candle dari MT5 (dengan auto-retry jika rollover bar)
+    rates = None
+    for attempt in range(3):
+        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H1, 0, 250)
+        if rates is not None and len(rates) >= 200:
+            break
+        time.sleep(1.5)
+        # Jika koneksi terputus sesaat, inisialisasi ulang
+        term = mt5.terminal_info()
+        if term is None or not term.connected:
+            mt5.initialize()
+
     if rates is None or len(rates) < 200:
         print(f"  ⚠ {label:<16}: Gagal mengambil data candle MT5.")
         return
