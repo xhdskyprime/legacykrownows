@@ -26,6 +26,7 @@ from execution import write_signal, read_acknowledgement
 from config import (
     ACTIVE_PAIRS,
     MAX_POSITIONS_PER_PAIR,
+    ENABLE_NEWS_FILTER,
     NEWS_FILTER_HOURS,
     SIGNAL_FILE,
     SIGNAL_ACK_FILE,
@@ -35,7 +36,7 @@ from config import (
 sys.stdout.reconfigure(line_buffering=True)
 torch.set_num_threads(10)
 
-LOG_CSV = os.path.join(_PROJECT_ROOT, "logs", "autopilot_10pairs_live.csv")
+LOG_CSV = os.path.join(_PROJECT_ROOT, "logs", "autopilot_multi_asset_live.csv")
 os.makedirs(os.path.join(_PROJECT_ROOT, "logs"), exist_ok=True)
 
 
@@ -47,6 +48,8 @@ def log_event(event_dict):
 
 def is_news_window(dt_utc):
     """Mendeteksi jendela rilis berita High-Impact utama (Red Folder)"""
+    if not ENABLE_NEWS_FILTER:
+        return False
     if dt_utc.weekday() >= 5: # Akhir pekan pasar tutup
         return True
     return dt_utc.hour in NEWS_FILTER_HOURS

@@ -23,7 +23,7 @@ def generate_signal(pair, timestamp, last_close, pred_high, pred_low, atr=None):
     upside_move = max(0.0, pred_high - last_close)
     downside_move = max(0.0, last_close - pred_low)
 
-    lot = LOT_SIZE.get(pair, 0.02 if "XAU" in pair else 0.05)
+    lot = LOT_SIZE.get(pair, 0.01)
 
     if upside_move > downside_move and upside_move >= min_required_move:
         direction = "long"
