@@ -1,5 +1,5 @@
 # Proprietary — do not publish
-src/trade_signal.py
+# src/trade_signal.py included for deployment
 src/btc_finetune.py
 src/btc_asymmetry_test.py
 src/btc_range_test.py
@@ -27,6 +27,7 @@ phase1_forecast_test.py
 __pycache__/
 *.pyc
 *.pyo
+*.log
 .env
 
 # Claude Code

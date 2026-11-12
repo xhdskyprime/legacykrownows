@@ -1,61 +1,36 @@
 //+------------------------------------------------------------------+
 //| KronosEA.mq5                                                     |
-//| Kronos Trading System — MT5 Expert Advisor (file bridge)         |
-//|                                                                  |
-//| What this does:                                                  |
-//|   Runs on a 5-second timer inside MT5. Checks for a signal.json |
-//|   file written by the Python system. If a new (unconsumed)      |
-//|   signal is found, places the order with SL/TP, writes an       |
-//|   acknowledgement file, and marks the signal as consumed.        |
-//|                                                                  |
-//| Setup — BEFORE attaching this EA to a chart:                    |
-//|   1. Set SignalFile and AckFile to filenames inside MT5's Common |
-//|      Files folder. On Mac this is:                               |
-//|      ~/Library/Application Support/MetaQuotes/Terminal/          |
-//|                                        Common/Files/             |
-//|   2. Set the same path in Python's write_signal() call in        |
-//|      main.py so both sides point to the same physical file.      |
-//|   3. Attach this EA to any chart for the instrument you trade.   |
-//|      The pair to trade comes from the signal file itself, not    |
-//|      the chart symbol.                                           |
-//|                                                                  |
-//| IMPORTANT — symbol name:                                         |
-//|   The "pair" field in signal.json must match the exact symbol    |
-//|   name in your MT5 (e.g. "BTCUSD" or "BTCUSD."). Check your     |
-//|   broker's symbol list and update config.py if needed.           |
+//| Kronos Trading System — MT5 Multi-Position & Trailing Stop EA     |
+//| Configured for 10-Pair Mega Setup (Max 5 Positions per Pair)     |
 //+------------------------------------------------------------------+
 #property copyright "Kronos Trading System"
-#property version   "1.00"
+#property version   "2.00"
 #property strict
 
 #include <Trade\Trade.mqh>
 
 //── Input parameters ──────────────────────────────────────────────
-// These are shown in the EA settings panel when you attach it to a chart.
-// SignalFile: filename (relative to MT5 Common Files folder) that Python writes to.
-// AckFile:    filename the EA writes back to confirm the signal was processed.
-input string SignalFile = "signal.json";       // Signal file Python writes
-input string AckFile    = "signal_ack.json";   // Acknowledgement file EA writes back
+input string SignalFile             = "signal.json";     // Signal file Python writes
+input string AckFile                = "signal_ack.json"; // Acknowledgement file EA writes
+input int    MaxPositionsPerSymbol  = 10;                // Maksimal posisi per pair (Layering s/d 10)
+input bool   EnableTrailingStop     = true;              // Aktifkan Auto Trailing Stop & BEP
 
 //── Trade object ──────────────────────────────────────────────────
-// CTrade handles order placement — cleaner than OrderSend() directly.
 CTrade trade;
 
-
 //+------------------------------------------------------------------+
-//| EA initialisation — called once when EA starts                   |
+//| EA initialisation                                                |
 //+------------------------------------------------------------------+
 int OnInit()
 {
-    // Start the 5-second timer
-    EventSetTimer(5);
-    Print("KronosEA started. Watching: ", SignalFile);
+    trade.SetExpertMagicNumber(108888);
+    EventSetTimer(3); // Cek sinyal & trailing stop setiap 3 detik
+    Print("KronosEA v2.0 (10-Pair Mega Setup) started. Watching: ", SignalFile);
     return INIT_SUCCEEDED;
 }
 
-
 //+------------------------------------------------------------------+
-//| EA cleanup — called when EA is removed or terminal closes        |
+//| EA cleanup                                                       |
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
@@ -63,52 +38,28 @@ void OnDeinit(const int reason)
     Print("KronosEA stopped.");
 }
 
-
 //+------------------------------------------------------------------+
-//| Timer callback — fires every 5 seconds                           |
-//+------------------------------------------------------------------+
-void OnTimer()
-{
-    ProcessSignalFile();
-}
-
-
-//+------------------------------------------------------------------+
-//| Extract a field value from a simple flat JSON string.            |
-//|                                                                  |
-//| Handles two value types:                                         |
-//|   String values:   "key": "value"  → returns value              |
-//|   Numeric/boolean: "key": 1.23     → returns "1.23"             |
-//|                                                                  |
-//| Does not handle nested objects or arrays — not needed here.      |
+//| Extract field helper                                             |
 //+------------------------------------------------------------------+
 string ExtractField(const string json, const string key)
 {
-    // Look for "key": (with space, as Python's json.dump produces)
     string pattern = "\"" + key + "\": ";
     int pos = StringFind(json, pattern, 0);
-
     if (pos < 0)
     {
-        // Try without space — handle compact JSON just in case
         pattern = "\"" + key + "\":";
         pos = StringFind(json, pattern, 0);
         if (pos < 0) return "";
     }
 
-    // Move past the pattern to the start of the value
     int val_start = pos + StringLen(pattern);
-
-    // If the value starts with a quote, it is a string
     if (StringSubstr(json, val_start, 1) == "\"")
     {
-        // Find the closing quote — value is between the two quotes
         int val_end = StringFind(json, "\"", val_start + 1);
         if (val_end < 0) return "";
         return StringSubstr(json, val_start + 1, val_end - val_start - 1);
     }
 
-    // Otherwise numeric, boolean, or null — read until a delimiter
     int val_end = val_start;
     int json_len = StringLen(json);
     while (val_end < json_len)
@@ -125,149 +76,205 @@ string ExtractField(const string json, const string key)
     return result;
 }
 
-
 //+------------------------------------------------------------------+
-//| Read the full contents of a file from the MT5 Common Files folder|
-//|                                                                  |
-//| Uses binary mode (FILE_BIN) to read raw bytes and converts to   |
-//| string. This avoids FILE_TXT line-ending issues on Wine/Mac      |
-//| where Unix \n line endings can cause FileReadString to misbehave.|
+//| File I/O helpers                                                 |
 //+------------------------------------------------------------------+
 string ReadFile(const string filename)
 {
     int fh = FileOpen(filename, FILE_READ | FILE_BIN | FILE_COMMON);
-    if (fh == INVALID_HANDLE)
-        return "";
-
+    if (fh == INVALID_HANDLE) return "";
     ulong file_size = FileSize(fh);
-    if (file_size == 0)
-    {
-        FileClose(fh);
-        return "";
-    }
+    if (file_size == 0) { FileClose(fh); return ""; }
 
     uchar buf[];
     ArrayResize(buf, (int)file_size);
     FileReadArray(fh, buf, 0, (int)file_size);
     FileClose(fh);
-
     return CharArrayToString(buf, 0, (int)file_size);
 }
 
-
-//+------------------------------------------------------------------+
-//| Write a string to a file in the MT5 Common Files folder          |
-//+------------------------------------------------------------------+
 bool WriteFile(const string filename, const string text)
 {
     int fh = FileOpen(filename, FILE_WRITE | FILE_TXT | FILE_COMMON);
-    if (fh == INVALID_HANDLE)
-    {
-        Print("KronosEA: Could not open ", filename, " for writing. Error=", GetLastError());
-        return false;
-    }
+    if (fh == INVALID_HANDLE) return false;
     FileWriteString(fh, text);
     FileClose(fh);
     return true;
 }
 
+//+------------------------------------------------------------------+
+//| Trailing Stop & Break-Even Manager                               |
+//| Automatically locks Break-Even at +1R and trails winning moves   |
+//+------------------------------------------------------------------+
+void ManageTrailingStop()
+{
+    if (!EnableTrailingStop) return;
+
+    for (int i = PositionsTotal() - 1; i >= 0; i--)
+    {
+        ulong ticket = PositionGetTicket(i);
+        if (ticket == 0) continue;
+
+        string comment = PositionGetString(POSITION_COMMENT);
+        if (StringFind(comment, "Kronos") < 0) continue; // Hanya kelola posisi milik Kronos
+
+        string sym        = PositionGetString(POSITION_SYMBOL);
+        long   pos_type   = PositionGetInteger(POSITION_TYPE);
+        double open_price = PositionGetDouble(POSITION_PRICE_OPEN);
+        double curr_sl    = PositionGetDouble(POSITION_SL);
+        double curr_tp    = PositionGetDouble(POSITION_TP);
+        int    digits     = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
+        double point      = SymbolInfoDouble(sym, SYMBOL_POINT);
+        double bid        = SymbolInfoDouble(sym, SYMBOL_BID);
+        double ask        = SymbolInfoDouble(sym, SYMBOL_ASK);
+
+        if (pos_type == POSITION_TYPE_BUY)
+        {
+            double profit_dist = bid - open_price;
+            double initial_risk = (curr_sl > 0) ? (open_price - curr_sl) : (150 * point);
+            if (initial_risk <= 0) initial_risk = 150 * point;
+
+            // Jika sudah profit minimal 1x initial risk -> Aktifkan BEP & Trailing
+            if (profit_dist >= initial_risk)
+            {
+                double trail_step = initial_risk * 0.75;
+                double new_sl = NormalizeDouble(bid - trail_step, digits);
+                double be_sl  = NormalizeDouble(open_price + (10 * point), digits);
+
+                if (new_sl < be_sl) new_sl = be_sl; // Kunci minimal Break-Even (+10 point buffer)
+
+                // Hanya modify jika SL baru lebih tinggi minimal 3 point dari SL lama
+                if (new_sl > (curr_sl + 3 * point))
+                {
+                    trade.PositionModify(ticket, new_sl, curr_tp);
+                    Print("KronosEA: Trailing SL dimajukan untuk BUY ", sym, " #", ticket, " --> ", new_sl);
+                }
+            }
+        }
+        else if (pos_type == POSITION_TYPE_SELL)
+        {
+            double profit_dist = open_price - ask;
+            double initial_risk = (curr_sl > 0) ? (curr_sl - open_price) : (150 * point);
+            if (initial_risk <= 0) initial_risk = 150 * point;
+
+            if (profit_dist >= initial_risk)
+            {
+                double trail_step = initial_risk * 0.75;
+                double new_sl = NormalizeDouble(ask + trail_step, digits);
+                double be_sl  = NormalizeDouble(open_price - (10 * point), digits);
+
+                if (new_sl > be_sl) new_sl = be_sl; // Kunci minimal Break-Even
+
+                if (curr_sl == 0 || new_sl < (curr_sl - 3 * point))
+                {
+                    trade.PositionModify(ticket, new_sl, curr_tp);
+                    Print("KronosEA: Trailing SL dimajukan untuk SELL ", sym, " #", ticket, " --> ", new_sl);
+                }
+            }
+        }
+    }
+}
 
 //+------------------------------------------------------------------+
-//| Main logic — check for a signal file and act on it               |
+//| Main logic — check for signal file and act on it                 |
 //+------------------------------------------------------------------+
 void ProcessSignalFile()
 {
-    // Try to read the signal file — returns "" if the file does not exist yet
     string content = ReadFile(SignalFile);
-    if (content == "")
-        return;   // No signal file yet — nothing to do
+    if (content == "") return;
 
-    // Check if this signal has already been processed
-    string consumed = ExtractField(content, "consumed");
-    if (consumed == "true")
-        return;   // Already handled — do nothing until Python writes a new signal
-
-    // Parse the fields needed to place the order
     string direction = ExtractField(content, "direction");
     string pair      = ExtractField(content, "pair");
     double lot_size  = StringToDouble(ExtractField(content, "lot_size"));
     double target    = StringToDouble(ExtractField(content, "target_price"));
     double stop      = StringToDouble(ExtractField(content, "stop_price"));
 
-    Print("KronosEA: Signal received | direction=", direction,
-          " pair=", pair, " lots=", lot_size,
-          " target=", target, " stop=", stop);
+    if (direction == "" || pair == "") return;
+
+    Print("KronosEA: Sinyal diterima | pair=", pair, " dir=", direction,
+          " lot=", lot_size, " TP=", target, " SL=", stop);
+
+    // Hitung posisi yang sudah ada untuk pair ini
+    int same_dir_count = 0;
+    int opp_dir_count  = 0;
+
+    for (int i = 0; i < PositionsTotal(); i++)
+    {
+        if (PositionGetSymbol(i) == pair)
+        {
+            long p_type = PositionGetInteger(POSITION_TYPE);
+            if ((direction == "long" && p_type == POSITION_TYPE_BUY) ||
+                (direction == "short" && p_type == POSITION_TYPE_SELL))
+            {
+                same_dir_count++;
+            }
+            else
+            {
+                opp_dir_count++;
+            }
+        }
+    }
 
     long   ticket       = 0;
     bool   order_placed = false;
 
-    // One position at a time — no stacking
-    if (PositionsTotal() > 0 && direction != "flat")
+    if (direction == "flat")
     {
-        Print("KronosEA: ", PositionsTotal(), " position(s) already open. Signal skipped — no stacking.");
         order_placed = true;
     }
-    else if (direction == "flat")
+    else if (opp_dir_count > 0)
     {
-        // No trade on a flat signal — just acknowledge so Python can move on
-        Print("KronosEA: direction=flat — no order placed.");
+        Print("KronosEA: Melewati sinyal ", direction, " ", pair, " karena masih ada posisi lawan arah yang aktif.");
+        order_placed = true;
+    }
+    else if (same_dir_count >= MaxPositionsPerSymbol)
+    {
+        Print("KronosEA: Batas maksimal ", MaxPositionsPerSymbol, " posisi untuk ", pair, " tercapai. Melewati.");
         order_placed = true;
     }
     else if (direction == "long")
     {
-        // BUY market order — target is take profit, stop is stop loss
-        // stop=0 means use market price; SL and TP are set explicitly
         if (trade.Buy(lot_size, pair, 0, stop, target, "Kronos"))
         {
             ticket = trade.ResultOrder();
             order_placed = true;
-            Print("KronosEA: BUY placed. Ticket=", ticket);
+            Print("KronosEA: BUY berhasil dibuka (Layer #", same_dir_count + 1, "). Ticket=", ticket);
         }
         else
         {
-            Print("KronosEA: BUY failed. Error=", GetLastError(),
-                  " RetCode=", trade.ResultRetcode());
+            Print("KronosEA: BUY gagal! Error=", GetLastError(), " RetCode=", trade.ResultRetcode());
         }
     }
     else if (direction == "short")
     {
-        // SELL market order — target is take profit, stop is stop loss
         if (trade.Sell(lot_size, pair, 0, stop, target, "Kronos"))
         {
             ticket = trade.ResultOrder();
             order_placed = true;
-            Print("KronosEA: SELL placed. Ticket=", ticket);
+            Print("KronosEA: SELL berhasil dibuka (Layer #", same_dir_count + 1, "). Ticket=", ticket);
         }
         else
         {
-            Print("KronosEA: SELL failed. Error=", GetLastError(),
-                  " RetCode=", trade.ResultRetcode());
+            Print("KronosEA: SELL gagal! Error=", GetLastError(), " RetCode=", trade.ResultRetcode());
         }
     }
-    else
-    {
-        Print("KronosEA: Unknown direction '", direction, "' — skipping.");
-        return;
-    }
 
-    // If the order failed (long/short only) — do not acknowledge.
-    // Python will time out and can retry on the next candle.
-    if (!order_placed)
-        return;
+    if (!order_placed) return;
 
-    //── Write acknowledgement file ────────────────────────────────
-    // Python's read_acknowledgement() polls for this file.
-    // ticket=0 for flat signals (no order placed).
+    // Tulis konfirmasi ke Python
     string ack = "{\n  \"status\": \"executed\",\n  \"order_ticket\": "
                  + IntegerToString(ticket) + "\n}\n";
+    WriteFile(AckFile, ack);
 
-    if (WriteFile(AckFile, ack))
-        Print("KronosEA: Acknowledgement written to ", AckFile);
+    // Hapus file sinyal agar EA menunggu sinyal berikutnya
+    FileDelete(SignalFile, FILE_COMMON);
+}
 
-    //── Mark signal as consumed ───────────────────────────────────
-    // Rewrite signal.json with "consumed": true so the EA ignores it
-    // on the next timer tick while Python processes the acknowledgement.
-    string updated = content;
-    StringReplace(updated, "\"consumed\": false", "\"consumed\": true");
-    WriteFile(SignalFile, updated);
+//+------------------------------------------------------------------+
+//| Timer event handler                                              |
+//+------------------------------------------------------------------+
+void OnTimer()
+{
+    ProcessSignalFile();
+    ManageTrailingStop();
 }

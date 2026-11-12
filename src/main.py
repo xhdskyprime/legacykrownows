@@ -93,7 +93,7 @@ def run_live():
     #   KRONOS_REPO → highest priority, so the Kronos model package wins over local model/
     #   PROJECT_ROOT → for config.py
     #   SRC          → for trade_signal.py and execution.py
-    sys.path = [p for p in sys.path if not p.endswith("/src")]
+    sys.path = [p for p in sys.path if not (p.endswith("/src") or p.endswith("\\src"))]
 
     _SRC          = os.path.dirname(os.path.abspath(__file__))           # .../Kronos/src
     _PROJECT_ROOT = os.path.dirname(_SRC)                                # .../Kronos
@@ -130,12 +130,14 @@ def run_live():
     # Create logs/ directory if it does not exist yet
     os.makedirs(LOG_DIR, exist_ok=True)
 
-    # ── Load finetuned Kronos model once at startup ──
+    # ── Load Kronos model once at startup ──
     # Loading takes a few seconds. We do it once here and keep the predictor in memory
     # for the entire session — not every candle cycle.
-    print("Loading finetuned Kronos model (epoch 3 checkpoint)...")
-    tokenizer = KronosTokenizer.from_pretrained(TOKENIZER_PATH)
-    model_obj = Kronos.from_pretrained(FINETUNED_PATH)
+    tokenizer_target = TOKENIZER_PATH if os.path.exists(TOKENIZER_PATH) else "NeoQuasar/Kronos-Tokenizer-base"
+    model_target = FINETUNED_PATH if os.path.exists(FINETUNED_PATH) else "NeoQuasar/Kronos-small"
+    print(f"Loading Kronos model ({model_target})...")
+    tokenizer = KronosTokenizer.from_pretrained(tokenizer_target)
+    model_obj = Kronos.from_pretrained(model_target)
 
     # Device detection: prefer Apple Metal GPU, then CUDA, fall back to CPU
     if torch.backends.mps.is_available():
@@ -190,11 +192,12 @@ def run_live():
             raw.columns = [c.lower() for c in raw.columns]
             df = raw[["open", "high", "low", "close"]].copy()
 
-            # Strip timezone from the index — our finetuning data was timezone-naive
-            if df.index.tz is not None:
-                df.index = df.index.tz_convert(None)
-            else:
-                df.index = df.index.tz_localize(None)
+            # Strip timezone from the index
+            try:
+                if df.index.tz is not None:
+                    df.index = df.index.tz_convert(None)
+            except Exception:
+                df.index = pd.to_datetime(df.index, utc=True).tz_localize(None)
 
             df = df.dropna()
 
@@ -285,16 +288,18 @@ def run_live():
 
 if __name__ == "__main__":
     import subprocess
+    import platform
 
-    # ── Keep macOS awake for the entire session ──
-    # caffeinate -i prevents the machine from sleeping while the process is alive.
-    # The finally block ensures it is killed cleanly whether the bot stops normally
-    # or crashes — no zombie caffeinate processes left behind.
-    _caffeinate = subprocess.Popen(['caffeinate', '-i'])
+    _caffeinate = None
+    if platform.system() == "Darwin":
+        try:
+            _caffeinate = subprocess.Popen(['caffeinate', '-i'])
+        except Exception:
+            pass
 
     try:
         run_live()
 
     finally:
-        # Always kill caffeinate on exit — clean shutdown
-        _caffeinate.terminate()
+        if _caffeinate is not None:
+            _caffeinate.terminate()

@@ -16,7 +16,7 @@ import time
 
 # Resolve config from project root
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from config import SIGNAL_FILE, SIGNAL_ACK_FILE, MT5_COMMON_FILES
+from config import SIGNAL_FILE, SIGNAL_ACK_FILE, MT5_COMMON_FILES, SYMBOL
 from execution import write_signal, read_acknowledgement
 
 print("\n" + "=" * 60)
@@ -43,7 +43,7 @@ print("Step 1: Writing flat signal to MT5 Common Files folder...")
 print(f"  Path: {SIGNAL_FILE}\n")
 
 test_signal = {
-    "pair":           "BTCUSD.m",
+    "pair":           SYMBOL,
     "timestamp":      "2026-04-14 04:00:00",
     "direction":      "flat",
     "confidence":     0.0,
