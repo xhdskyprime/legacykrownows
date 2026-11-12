@@ -122,6 +122,19 @@ def scan_pair(predictor, pair_info):
     signal = generate_signal(symbol, next_ts, last_close, pred_high, pred_low, atr=curr_atr)
     direction = signal["direction"].upper()
 
+    # Sinkronisasi SL & TP dengan harga live tick agar tidak tertolak broker (Invalid Stops)
+    tick = mt5.symbol_info_tick(symbol)
+    if tick is not None and signal["direction"] in ["long", "short"]:
+        move = float(signal["predicted_move"])
+        if signal["direction"] == "long":
+            sl_dist = max(0.0, float(last_close - signal["stop_price"]))
+            signal["target_price"] = round(tick.ask + move, digits)
+            signal["stop_price"] = round(tick.bid - sl_dist, digits)
+        else:
+            sl_dist = max(0.0, float(signal["stop_price"] - last_close))
+            signal["target_price"] = round(tick.bid - move, digits)
+            signal["stop_price"] = round(tick.ask + sl_dist, digits)
+
     # 6. Cek keselarasan arah dengan posisi aktif yang sudah terbuka (Anti-Hedging)
     if active_count > 0 and signal["direction"] in ["long", "short"]:
         pos_types = [p.type for p in positions] # 0 = BUY, 1 = SELL

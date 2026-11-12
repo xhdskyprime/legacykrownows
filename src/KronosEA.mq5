@@ -234,6 +234,14 @@ void ProcessSignalFile()
     }
     else if (direction == "long")
     {
+        double bid = SymbolInfoDouble(pair, SYMBOL_BID);
+        double point = SymbolInfoDouble(pair, SYMBOL_POINT);
+        int digits = (int)SymbolInfoInteger(pair, SYMBOL_DIGITS);
+        if (stop >= bid && stop > 0)
+        {
+            stop = NormalizeDouble(bid - 150 * point, digits);
+        }
+
         if (trade.Buy(lot_size, pair, 0, stop, target, "Kronos"))
         {
             ticket = trade.ResultOrder();
@@ -247,6 +255,14 @@ void ProcessSignalFile()
     }
     else if (direction == "short")
     {
+        double ask = SymbolInfoDouble(pair, SYMBOL_ASK);
+        double point = SymbolInfoDouble(pair, SYMBOL_POINT);
+        int digits = (int)SymbolInfoInteger(pair, SYMBOL_DIGITS);
+        if (stop <= ask && stop > 0)
+        {
+            stop = NormalizeDouble(ask + 150 * point, digits);
+        }
+
         if (trade.Sell(lot_size, pair, 0, stop, target, "Kronos"))
         {
             ticket = trade.ResultOrder();

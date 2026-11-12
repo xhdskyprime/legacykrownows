@@ -82,3 +82,4 @@ python run_autopilot.py
 pause
 ```
 Cukup klik 2x `start_bot.bat`, lalu minimize remote desktop (jangan sign out). Bot akan terus berjalan 24 jam non-stop!
+
