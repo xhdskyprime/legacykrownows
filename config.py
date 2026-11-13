@@ -36,8 +36,8 @@ LOT_SIZE = {p["name"]: p["lot"] for p in ACTIVE_PAIRS}
 SPREAD_USD = {p["name"]: p["spread"] for p in ACTIVE_PAIRS}
 PAIR_DIGITS = {p["name"]: p["digits"] for p in ACTIVE_PAIRS}
 
-# ── Max Layering per Pair ──
-MAX_POSITIONS_PER_PAIR = 5
+# ── Max Layering per Pair (Golden Setup: Sweet Spot Max 2 Layers) ──
+MAX_POSITIONS_PER_PAIR = 2
 
 # ── News Filter ──
 ENABLE_NEWS_FILTER = False

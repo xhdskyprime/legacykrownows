@@ -12,7 +12,7 @@
 //── Input parameters ──────────────────────────────────────────────
 input string SignalFile             = "signal.json";     // Signal file Python writes
 input string AckFile                = "signal_ack.json"; // Acknowledgement file EA writes
-input int    MaxPositionsPerSymbol  = 10;                // Maksimal posisi per pair (Layering s/d 10)
+input int    MaxPositionsPerSymbol  = 2;                 // Maksimal posisi per pair (Golden Setup: Sweet Spot Max 2 Layer)
 input bool   EnableTrailingStop     = true;              // Aktifkan Auto Trailing Stop & BEP
 
 //── Trade object ──────────────────────────────────────────────────
