@@ -366,10 +366,23 @@ void ProcessSignalFile()
     long ticket = 0;
     bool order_placed = false;
 
+    // Pastikan simbol aktif di Market Watch
+    SymbolSelect(pair, true);
+
     int digits = (int)SymbolInfoInteger(pair, SYMBOL_DIGITS);
     double point = SymbolInfoDouble(pair, SYMBOL_POINT);
-    double bid = SymbolInfoDouble(pair, SYMBOL_BID);
-    double ask = SymbolInfoDouble(pair, SYMBOL_ASK);
+    if (point <= 0) point = (digits == 5) ? 0.00001 : ((digits == 3) ? 0.001 : 0.01);
+
+    MqlTick tick;
+    if (!SymbolInfoTick(pair, tick) || tick.bid <= 0 || tick.ask <= 0)
+    {
+        Print("Kronos Hybrid: Menunggu harga live untuk ", pair, ". Melewati sinyal ini.");
+        FileDelete(SignalFile, FILE_COMMON);
+        return;
+    }
+
+    double bid = tick.bid;
+    double ask = tick.ask;
 
     double grid_step = (atr > 0) ? (atr * ATRMultiplierStep) : (150 * point);
 
@@ -392,7 +405,7 @@ void ProcessSignalFile()
     else if (direction == "long")
     {
         // ── BULLISH GRID ──
-        if (stop >= bid && stop > 0)
+        if (bid > 0 && stop >= bid && stop > 0)
         {
             stop = NormalizeDouble(bid - 150 * point, digits);
         }
@@ -417,6 +430,10 @@ void ProcessSignalFile()
                     Print("Kronos Hybrid: Jaring BUY LIMIT Layer #2 dipasang di harga diskon: ", limit_price);
                 }
             }
+            else
+            {
+                Print("Kronos Hybrid: Gagal BUY ", pair, "! Error: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription());
+            }
         }
         else
         {
@@ -427,7 +444,7 @@ void ProcessSignalFile()
     else if (direction == "short")
     {
         // ── BEARISH GRID ──
-        if (stop <= ask && stop > 0)
+        if (ask > 0 && stop <= ask && stop > 0)
         {
             stop = NormalizeDouble(ask + 150 * point, digits);
         }
@@ -452,6 +469,10 @@ void ProcessSignalFile()
                     Print("Kronos Hybrid: Jaring SELL LIMIT Layer #2 dipasang di harga rally: ", limit_price);
                 }
             }
+            else
+            {
+                Print("Kronos Hybrid: Gagal SELL ", pair, "! Error: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription());
+            }
         }
         else
         {
@@ -460,12 +481,19 @@ void ProcessSignalFile()
         }
     }
 
-    if (!order_placed) return;
-
-    // Tulis konfirmasi ke Python
-    string ack = "{\n  \"status\": \"executed\",\n  \"order_ticket\": "
-                 + IntegerToString(ticket) + "\n}\n";
-    WriteFile(AckFile, ack);
+    // Tulis konfirmasi ke Python & hapus file sinyal agar tidak stuck
+    if (order_placed)
+    {
+        string ack = "{\n  \"status\": \"executed\",\n  \"order_ticket\": "
+                     + IntegerToString(ticket) + "\n}\n";
+        WriteFile(AckFile, ack);
+    }
+    else
+    {
+        string ack = "{\n  \"status\": \"failed\",\n  \"error\": "
+                     + IntegerToString(trade.ResultRetcode()) + "\n}\n";
+        WriteFile(AckFile, ack);
+    }
 
     FileDelete(SignalFile, FILE_COMMON);
 }

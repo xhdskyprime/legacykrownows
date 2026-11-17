@@ -76,9 +76,9 @@ def read_acknowledgement(path=None, timeout_seconds=30):
                 except (UnicodeDecodeError, json.JSONDecodeError):
                     with open(path, encoding='utf-8') as f:
                         ack = json.load(f)
-                if ack.get("status") == "executed":
+                if "status" in ack:
                     os.remove(path)   # clean up so it does not get re-read
-                    return True
+                    return ack.get("status") == "executed"
             except Exception:
                 pass
         time.sleep(1)
