@@ -1,6 +1,7 @@
 # config.py
 # Central configuration file for Kronos AI Auto-Trader.
-# Optimized Elite Portfolio: Top 12 Profitable Instruments (Rank 1 - 12)
+# High-Efficiency Elite Portfolio (Cleaned: US30, Silver, and ETH removed per user request).
+# Active: Gold, Crude Oil, and Top Stable Forex Crosses/Majors.
 # Configured for Exness Cent Account (USC) with 'c' symbol suffix.
 # Golden Setup: Sweet Spot Max 2 Positions per Pair.
 # News Filter is DISABLED per user request for 24/7 momentum capture.
@@ -8,15 +9,11 @@
 import os as _os
 import platform as _platform
 
-# ── Top 12 Elite Instruments (Exness Cent Account 'c' Suffix) ──
+# ── Elite Stable Instruments (Exness Cent Account 'c' Suffix) ──
 ACTIVE_PAIRS = [
-    # ── Commodities & Precious Metals (Top Tier Performers) ──
+    # ── Commodities & Energy (Top Tier Performers) ──
     {"name": "XAUUSDc", "label": "Gold (XAU/USD)",      "digits": 3, "lot": 0.01, "spread": 0.35},
-    {"name": "XAGUSDc", "label": "Silver (XAG/USD)",    "digits": 3, "lot": 0.01, "spread": 0.03},
     {"name": "USOILc",  "label": "Crude Oil (WTI)",     "digits": 3, "lot": 0.01, "spread": 0.02},
-
-    # ── High-Momentum Equity Index ──
-    {"name": "US30c",   "label": "Dow Jones 30",        "digits": 1, "lot": 0.05, "spread": 2.00},
 
     # ── High-Volatility Forex Crosses ──
     {"name": "GBPJPYc", "label": "GBP/JPY (Guppy)",     "digits": 3, "lot": 0.03, "spread": 0.025},
@@ -24,13 +21,10 @@ ACTIVE_PAIRS = [
     {"name": "EURAUDc", "label": "EUR/AUD",             "digits": 5, "lot": 0.03, "spread": 0.00020},
     {"name": "AUDJPYc", "label": "AUD/JPY",             "digits": 3, "lot": 0.03, "spread": 0.015},
 
-    # ── Forex Majors ──
+    # ── Forex Majors (High Liquidity, Smooth Trends) ──
     {"name": "EURUSDc", "label": "EUR/USD",             "digits": 5, "lot": 0.03, "spread": 0.00015},
     {"name": "GBPUSDc", "label": "GBP/USD",             "digits": 5, "lot": 0.03, "spread": 0.00020},
     {"name": "AUDUSDc", "label": "AUD/USD",             "digits": 5, "lot": 0.03, "spread": 0.00015},
-
-    # ── Crypto (Elite) ──
-    {"name": "ETHUSDc", "label": "Ethereum (ETH)",      "digits": 2, "lot": 0.10, "spread": 1.20},
 ]
 
 LOT_SIZE = {p["name"]: p["lot"] for p in ACTIVE_PAIRS}
