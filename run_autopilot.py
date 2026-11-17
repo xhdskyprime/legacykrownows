@@ -68,7 +68,10 @@ def scan_pair(predictor, pair_info):
     label = pair_info["label"]
     digits = pair_info["digits"]
 
-    # 1. Cek posisi yang sedang aktif di MT5 untuk pair ini (Khusus Magic 108888 milik bot)
+    # 1. Pastikan simbol aktif di Market Watch MT5
+    mt5.symbol_select(symbol, True)
+
+    # Cek posisi yang sedang aktif di MT5 untuk pair ini (Khusus Magic 108888 milik bot)
     all_pos = mt5.positions_get(symbol=symbol)
     positions = [p for p in all_pos if p.magic == 108888] if all_pos is not None else []
     active_count = len(positions)
@@ -207,7 +210,7 @@ def main():
     predictor = KronosPredictor(model, tokenizer, max_context=512)
     print("✓ Model Kronos AI siap di CPU (10 threads).")
 
-    print("\nMemulai pemindaian 10 pair secara live...")
+    print(f"\nMemulai pemindaian {len(ACTIVE_PAIRS)} pair secara live...")
     last_processed_hour = -1
 
     while True:

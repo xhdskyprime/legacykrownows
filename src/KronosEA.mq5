@@ -1,7 +1,7 @@
 //+------------------------------------------------------------------+
 //| KronosEA.mq5                                                     |
-//| Kronos Trading System — Hybrid AI-Grid v3.0                      |
-//| Combines Kronos Deep Learning Directional Forecast with           |
+//| Kronos Trading System — Hybrid AI-Grid v3.0 Stepped Edition       |
+//| Multi-Stage Stepped Trailing Stop (BEP -> Cuan 1 -> Cuan 2)      |
 //| ATR-Adaptive Pullback Grid & Basket Profit Management            |
 //+------------------------------------------------------------------+
 #property copyright "Kronos Trading System"
@@ -16,10 +16,10 @@ input string SignalFile             = "signal.json";     // File sinyal dari Pyt
 input string AckFile                = "signal_ack.json"; // File konfirmasi balasan EA
 input int    MagicNumber            = 108888;            // Magic Number terisolasi bot
 input int    MaxGridLayers          = 2;                 // Maksimal layer grid per instrumen (Golden Setup: 2)
-input double ATRMultiplierStep      = 0.75;              // Pengali ATR untuk jarak jaring pullback
-input bool   EnableBasketClose      = true;              // Tutup serentak seluruh keranjang saat profit tercapai
-input bool   EnableTrailingStop     = true;              // Aktifkan Trailing Stop & BEP pada posisi single
-input double BasketProfitTargetUSC  = 3.0;               // Target profit keranjang gabungan (dalam sen/USC)
+input double ATRMultiplierStep      = 0.75;              // Pengali ATR untuk jarak jaring pullback (Layer 2)
+input bool   EnableBasketClose      = true;              // Tutup serentak seluruh keranjang saat target tercapai
+input double BasketProfitTargetUSC  = 2.5;               // Target profit keranjang gabungan (dalam USC)
+input bool   EnableSteppedTrailing  = true;              // Aktifkan Trailing Bertingkat (BEP -> Tier 1 -> Tier 2)
 
 //── Trade object ──────────────────────────────────────────────────
 CTrade trade;
@@ -33,10 +33,11 @@ int OnInit()
     trade.SetDeviationInPoints(50);
     trade.SetTypeFilling(ORDER_FILLING_IOC);
 
-    EventSetTimer(3); // Cek sinyal & kelola keranjang/trailing setiap 3 detik
+    EventSetTimer(3); // Cek sinyal & kelola trailing bertingkat setiap 3 detik
     Print("================================================================");
-    Print("Kronos Hybrid AI-Grid v3.0 started | Magic: ", MagicNumber);
-    Print("Max Grid Layers: ", MaxGridLayers, " | ATR Step Multiplier: ", ATRMultiplierStep);
+    Print("Kronos Hybrid AI-Grid v3.0 (Stepped Trailing Edition) Started");
+    Print("Magic Number: ", MagicNumber, " | Max Grid Layers: ", MaxGridLayers);
+    Print("Trailing Bertingkat: ", (EnableSteppedTrailing ? "AKTIF (BEP -> Tangga Profit)" : "MATI"));
     Print("================================================================");
     return INIT_SUCCEEDED;
 }
@@ -135,26 +136,6 @@ int CountBotPositions(const string sym, const ENUM_POSITION_TYPE pos_type)
 }
 
 //+------------------------------------------------------------------+
-//| Hitung pending limit orders milik robot ini                      |
-//+------------------------------------------------------------------+
-int CountBotPendingOrders(const string sym, const ENUM_ORDER_TYPE order_type)
-{
-    int count = 0;
-    for (int i = 0; i < OrdersTotal(); i++)
-    {
-        ulong ticket = OrderGetTicket(i);
-        if (ticket == 0) continue;
-        if (OrderGetString(ORDER_SYMBOL) == sym &&
-            OrderGetInteger(ORDER_MAGIC) == MagicNumber &&
-            OrderGetInteger(ORDER_TYPE) == order_type)
-        {
-            count++;
-        }
-    }
-    return count;
-}
-
-//+------------------------------------------------------------------+
 //| Hapus pending orders kadaluarsa untuk symbol ini                 |
 //+------------------------------------------------------------------+
 void DeleteBotPendingOrders(const string sym)
@@ -178,7 +159,6 @@ void ManageBasketProfit()
 {
     if (!EnableBasketClose) return;
 
-    // Kumpulkan symbol aktif milik bot
     string active_syms[];
     int sym_count = 0;
 
@@ -202,7 +182,6 @@ void ManageBasketProfit()
         }
     }
 
-    // Evaluasi profit per symbol keranjang
     for (int s = 0; s < sym_count; s++)
     {
         string sym = active_syms[s];
@@ -220,7 +199,6 @@ void ManageBasketProfit()
             }
         }
 
-        // Jika keranjang berisi lebih dari 1 posisi dan profit sudah capai target
         if (pos_count >= 2 && total_profit >= BasketProfitTargetUSC)
         {
             Print("Kronos Hybrid: BASKET PROFIT TERCAPAI pada ", sym, "! Profit=", total_profit, " USC (", pos_count, " posisi). Menutup keranjang...");
@@ -240,11 +218,15 @@ void ManageBasketProfit()
 }
 
 //+------------------------------------------------------------------+
-//| Trailing Stop Manager untuk Single Position                       |
+//| Stepped Trailing Stop Manager (Trailing Bertingkat):             |
+//| Tangga 1: Profit >= 0.8 ATR  -> Kunci BEP (+10 point) Zero-Risk  |
+//| Tangga 2: Profit >= 1.5 ATR  -> Kunci Cuan (+0.6 ATR)            |
+//| Tangga 3: Profit >= 2.2 ATR  -> Kunci Cuan (+1.3 ATR)            |
+//| Tangga 4: Profit >= 3.0 ATR  -> Trail Dinamis (Price - 0.9 ATR)  |
 //+------------------------------------------------------------------+
-void ManageSingleTrailingStop()
+void ManageSteppedTrailingStop()
 {
-    if (!EnableTrailingStop) return;
+    if (!EnableSteppedTrailing) return;
 
     for (int i = PositionsTotal() - 1; i >= 0; i--)
     {
@@ -268,45 +250,89 @@ void ManageSingleTrailingStop()
         double bid        = SymbolInfoDouble(sym, SYMBOL_BID);
         double ask        = SymbolInfoDouble(sym, SYMBOL_ASK);
 
+        // Dapatkan nilai ATR H1 live
+        double atr_val = 0.0;
+        int atr_handle = iATR(sym, PERIOD_H1, 14);
+        if (atr_handle != INVALID_HANDLE)
+        {
+            double atr_buf[1];
+            if (CopyBuffer(atr_handle, 0, 0, 1, atr_buf) > 0)
+            {
+                atr_val = atr_buf[0];
+            }
+            IndicatorRelease(atr_handle);
+        }
+        if (atr_val <= 0) atr_val = 150 * point;
+
         if (pos_type == POSITION_TYPE_BUY)
         {
             double profit_dist = bid - open_price;
-            double initial_risk = (curr_sl > 0) ? (open_price - curr_sl) : (150 * point);
-            if (initial_risk <= 0) initial_risk = 150 * point;
+            double target_sl = 0.0;
 
-            if (profit_dist >= initial_risk)
+            // Tangga 4: Super Runner (> 3.0 ATR)
+            if (profit_dist >= 3.0 * atr_val)
             {
-                double trail_step = initial_risk * 0.75;
-                double new_sl = NormalizeDouble(bid - trail_step, digits);
-                double be_sl  = NormalizeDouble(open_price + (10 * point), digits);
+                target_sl = bid - (0.9 * atr_val);
+            }
+            // Tangga 3: Kunci Cuan Gemuk (>= 2.2 ATR)
+            else if (profit_dist >= 2.2 * atr_val)
+            {
+                target_sl = open_price + (1.3 * atr_val);
+            }
+            // Tangga 2: Kunci Cuan Pertama (>= 1.5 ATR)
+            else if (profit_dist >= 1.5 * atr_val)
+            {
+                target_sl = open_price + (0.6 * atr_val);
+            }
+            // Tangga 1: Kunci BEP / Zero Risk (>= 0.8 ATR)
+            else if (profit_dist >= 0.8 * atr_val)
+            {
+                target_sl = open_price + (10 * point);
+            }
 
-                if (new_sl < be_sl) new_sl = be_sl;
-
-                if (new_sl > (curr_sl + 3 * point))
+            if (target_sl > 0)
+            {
+                target_sl = NormalizeDouble(target_sl, digits);
+                if (target_sl > (curr_sl + 3 * point) && target_sl < bid)
                 {
-                    trade.PositionModify(ticket, new_sl, curr_tp);
-                    Print("Kronos Hybrid: Trailing SL BUY ", sym, " #", ticket, " --> ", new_sl);
+                    trade.PositionModify(ticket, target_sl, curr_tp);
+                    Print("Kronos Hybrid: TANGGA TRAILING BUY ", sym, " #", ticket, " dinaikkan --> ", target_sl, " (Profit: +", DoubleToString(profit_dist / point, 0), " pts)");
                 }
             }
         }
         else if (pos_type == POSITION_TYPE_SELL)
         {
             double profit_dist = open_price - ask;
-            double initial_risk = (curr_sl > 0) ? (curr_sl - open_price) : (150 * point);
-            if (initial_risk <= 0) initial_risk = 150 * point;
+            double target_sl = 0.0;
 
-            if (profit_dist >= initial_risk)
+            // Tangga 4: Super Runner (> 3.0 ATR)
+            if (profit_dist >= 3.0 * atr_val)
             {
-                double trail_step = initial_risk * 0.75;
-                double new_sl = NormalizeDouble(ask + trail_step, digits);
-                double be_sl  = NormalizeDouble(open_price - (10 * point), digits);
+                target_sl = ask + (0.9 * atr_val);
+            }
+            // Tangga 3: Kunci Cuan Gemuk (>= 2.2 ATR)
+            else if (profit_dist >= 2.2 * atr_val)
+            {
+                target_sl = open_price - (1.3 * atr_val);
+            }
+            // Tangga 2: Kunci Cuan Pertama (>= 1.5 ATR)
+            else if (profit_dist >= 1.5 * atr_val)
+            {
+                target_sl = open_price - (0.6 * atr_val);
+            }
+            // Tangga 1: Kunci BEP / Zero Risk (>= 0.8 ATR)
+            else if (profit_dist >= 0.8 * atr_val)
+            {
+                target_sl = open_price - (10 * point);
+            }
 
-                if (new_sl > be_sl) new_sl = be_sl;
-
-                if (curr_sl == 0 || new_sl < (curr_sl - 3 * point))
+            if (target_sl > 0)
+            {
+                target_sl = NormalizeDouble(target_sl, digits);
+                if ((curr_sl == 0 || target_sl < (curr_sl - 3 * point)) && target_sl > ask)
                 {
-                    trade.PositionModify(ticket, new_sl, curr_tp);
-                    Print("Kronos Hybrid: Trailing SL SELL ", sym, " #", ticket, " --> ", new_sl);
+                    trade.PositionModify(ticket, target_sl, curr_tp);
+                    Print("Kronos Hybrid: TANGGA TRAILING SELL ", sym, " #", ticket, " dimajukan --> ", target_sl, " (Profit: +", DoubleToString(profit_dist / point, 0), " pts)");
                 }
             }
         }
@@ -345,17 +371,16 @@ void ProcessSignalFile()
     double bid = SymbolInfoDouble(pair, SYMBOL_BID);
     double ask = SymbolInfoDouble(pair, SYMBOL_ASK);
 
-    // Hitung step grid adaptif berdasarkan ATR
     double grid_step = (atr > 0) ? (atr * ATRMultiplierStep) : (150 * point);
 
     if (direction == "flat")
     {
         order_placed = true;
     }
-    // Anti-Hedging: jika ada posisi lawan arah yang terbuka, lewati
+    // Anti-Hedging: lewati jika ada posisi lawan arah milik bot
     else if ((direction == "long" && bot_sells > 0) || (direction == "short" && bot_buys > 0))
     {
-        Print("Kronos Hybrid: Melewati ", direction, " ", pair, " karena masih ada posisi lawan arah milik bot.");
+        Print("Kronos Hybrid: Melewati ", direction, " ", pair, " karena ada posisi lawan arah milik bot.");
         order_placed = true;
     }
     // Maksimal posisi per pair
@@ -372,7 +397,7 @@ void ProcessSignalFile()
             stop = NormalizeDouble(bid - 150 * point, digits);
         }
 
-        // Layer #1: Masuk Market jika belum ada posisi
+        // Layer #1: Masuk Market jika belum ada posisi bot
         if (total_bot_pos == 0)
         {
             if (trade.Buy(lot_size, pair, 0, stop, target, "Kronos-L1"))
@@ -383,20 +408,19 @@ void ProcessSignalFile()
 
                 // Pasang Jaring Diskon Layer #2 (Buy Limit pada harga pullback)
                 double limit_price = NormalizeDouble(ask - grid_step, digits);
-                double limit_tp    = NormalizeDouble(ask, digits); // TP di harga open Layer #1
+                double limit_tp    = NormalizeDouble(ask, digits);
                 double limit_sl    = NormalizeDouble(limit_price - (grid_step * 1.5), digits);
 
                 DeleteBotPendingOrders(pair);
                 if (trade.BuyLimit(lot_size, limit_price, pair, limit_sl, limit_tp, ORDER_TIME_GTC, 0, "Kronos-L2-Grid"))
                 {
-                    Print("Kronos Hybrid: Jaring BUY LIMIT Layer #2 berhasil dipasang di harga diskon: ", limit_price);
+                    Print("Kronos Hybrid: Jaring BUY LIMIT Layer #2 dipasang di harga diskon: ", limit_price);
                 }
             }
         }
-        // Jika sudah ada 1 posisi dan sinyal tetap bullish, biarkan jaring limit bekerja
         else
         {
-            Print("Kronos Hybrid: Layer #1 sedang aktif di ", pair, ". Menunggu pullback menabrak jaring diskon.");
+            Print("Kronos Hybrid: Layer #1 sedang aktif di ", pair, ". Menunggu pullback ke jaring diskon.");
             order_placed = true;
         }
     }
@@ -408,7 +432,7 @@ void ProcessSignalFile()
             stop = NormalizeDouble(ask + 150 * point, digits);
         }
 
-        // Layer #1: Masuk Market jika belum ada posisi
+        // Layer #1: Masuk Market jika belum ada posisi bot
         if (total_bot_pos == 0)
         {
             if (trade.Sell(lot_size, pair, 0, stop, target, "Kronos-L1"))
@@ -419,19 +443,19 @@ void ProcessSignalFile()
 
                 // Pasang Jaring Diskon Layer #2 (Sell Limit pada harga rally/koreksi atas)
                 double limit_price = NormalizeDouble(bid + grid_step, digits);
-                double limit_tp    = NormalizeDouble(bid, digits); // TP di harga open Layer #1
+                double limit_tp    = NormalizeDouble(bid, digits);
                 double limit_sl    = NormalizeDouble(limit_price + (grid_step * 1.5), digits);
 
                 DeleteBotPendingOrders(pair);
                 if (trade.SellLimit(lot_size, limit_price, pair, limit_sl, limit_tp, ORDER_TIME_GTC, 0, "Kronos-L2-Grid"))
                 {
-                    Print("Kronos Hybrid: Jaring SELL LIMIT Layer #2 berhasil dipasang di harga rally: ", limit_price);
+                    Print("Kronos Hybrid: Jaring SELL LIMIT Layer #2 dipasang di harga rally: ", limit_price);
                 }
             }
         }
         else
         {
-            Print("Kronos Hybrid: Layer #1 sedang aktif di ", pair, ". Menunggu rally menabrak jaring diskon.");
+            Print("Kronos Hybrid: Layer #1 sedang aktif di ", pair, ". Menunggu rally ke jaring diskon.");
             order_placed = true;
         }
     }
@@ -443,7 +467,6 @@ void ProcessSignalFile()
                  + IntegerToString(ticket) + "\n}\n";
     WriteFile(AckFile, ack);
 
-    // Hapus file sinyal agar EA siap menerima sinyal berikutnya
     FileDelete(SignalFile, FILE_COMMON);
 }
 
@@ -454,5 +477,5 @@ void OnTimer()
 {
     ProcessSignalFile();
     ManageBasketProfit();
-    ManageSingleTrailingStop();
+    ManageSteppedTrailingStop();
 }
