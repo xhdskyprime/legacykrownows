@@ -68,12 +68,13 @@ def scan_pair(predictor, pair_info):
     label = pair_info["label"]
     digits = pair_info["digits"]
 
-    # 1. Cek posisi yang sedang aktif di MT5 untuk pair ini
-    positions = mt5.positions_get(symbol=symbol)
-    active_count = len(positions) if positions is not None else 0
+    # 1. Cek posisi yang sedang aktif di MT5 untuk pair ini (Khusus Magic 108888 milik bot)
+    all_pos = mt5.positions_get(symbol=symbol)
+    positions = [p for p in all_pos if p.magic == 108888] if all_pos is not None else []
+    active_count = len(positions)
 
     if active_count >= MAX_POSITIONS_PER_PAIR:
-        print(f"  ℹ {label:<16}: Maksimal {MAX_POSITIONS_PER_PAIR} posisi aktif tercapai ({active_count} order). Melewati.")
+        print(f"  ℹ {label:<16}: Maksimal {MAX_POSITIONS_PER_PAIR} posisi aktif tercapai ({active_count} order bot). Melewati.")
         return
 
     # 2. Cek News Filter
@@ -133,6 +134,7 @@ def scan_pair(predictor, pair_info):
     pred_low = float(pred_df["low"].iloc[0])
 
     signal = generate_signal(symbol, next_ts, last_close, pred_high, pred_low, atr=curr_atr)
+    signal["atr"] = round(curr_atr, digits)
     direction = signal["direction"].upper()
 
     # Sinkronisasi SL & TP dengan harga live tick agar tidak tertolak broker (Invalid Stops)
@@ -181,7 +183,7 @@ def scan_pair(predictor, pair_info):
 
 def main():
     print("=" * 78)
-    print("KRONOS AI PRODUCTION AUTOPILOT - 10 PAIR MEGA SETUP")
+    print("KRONOS HYBRID AI-GRID v3.0 - PRODUCTION ENGINE")
     print("=" * 78)
 
     if not mt5.initialize():
@@ -192,9 +194,10 @@ def main():
     print(f"Akun MT5:          Login {acc.login} ({acc.server})")
     print(f"Saldo:             ${acc.balance:,.2f} {acc.currency}")
     print(f"Jumlah Pair:       {len(ACTIVE_PAIRS)} Pair Aktif")
-    print(f"Maksimal Posisi:   {MAX_POSITIONS_PER_PAIR} Posisi per Pair (Layering Searah Tren)")
-    print(f"Trailing Stop:     Aktif di MT5 (Lock BEP + Trail Gewinn)")
-    print(f"News Filter:       Aktif (Pause di Jam 12-14 & 18-19 UTC)")
+    print(f"Maksimal Layer:    {MAX_POSITIONS_PER_PAIR} Layer (Hybrid AI-Grid: Market L1 + Dip Limit L2)")
+    print(f"Basket Close:      Aktif di MT5 (Auto Close Keranjang saat Target Profit Tercapai)")
+    print(f"Trailing Stop:     Aktif di MT5 (Lock BEP + Trail Single Moves)")
+    print(f"News Filter:       {'Aktif' if ENABLE_NEWS_FILTER else 'Mati (24/7 Trading)'}")
     print("-" * 78)
 
     print("\nMemuat Model AI Kronos...")
