@@ -1,13 +1,13 @@
 //+------------------------------------------------------------------+
 //| KronosEA.mq5                                                     |
-//| Kronos Trading System — Pure AI v3.1 (Stepped Trailing Edition)  |
-//| Pure Kronos AI Market Execution (No Grid Limit Orders)           |
-//| Isolated Magic 108888 (Manual Trades Untouched)                  |
+//| Kronos Trading System — Dual-Mode A/B v3.2 (Stepped Trailing)    |
+//| Simultaneous Live Comparison: Mode B (108882) vs Mode C (108883) |
+//| Isolated Magic Numbers (Manual Trades Magic 0 100% Untouched)    |
 //| Multi-Stage Stepped Trailing Stop (BEP -> Cuan 1 -> Cuan 2)      |
 //+------------------------------------------------------------------+
 #property copyright "Kronos Trading System"
 #property link      "https://github.com/xhdskyprime/legacykrownows"
-#property version   "3.10"
+#property version   "3.20"
 #property strict
 
 #include <Trade\Trade.mqh>
@@ -15,31 +15,21 @@
 //── Input parameters ──────────────────────────────────────────────
 input string SignalFile            = "signal.json";     // File sinyal dari Python AI
 input string AckFile               = "signal_ack.json"; // File konfirmasi balasan EA
-input int    MagicNumber           = 108888;            // Magic Number terisolasi khusus bot
-input int    MaxPositionsPerPair   = 2;                 // Maksimal posisi bot per instrumen (Golden Setup: 2)
-input bool   EnableSteppedTrailing = true;              // Aktifkan Trailing Bertingkat (BEP -> Tangga Profit)
+input int    MagicModeB            = 108882;            // Magic Number khusus Mode B (Smart R:R p=3)
+input int    MagicModeC            = 108883;            // Magic Number khusus Mode C (Smart R:R p=3 + EMA50)
+input int    MagicLegacy           = 108888;            // Magic Number lama (tetap dikawal Stepped Trailing)
+input int    MaxPositionsPerMode   = 2;                 // Maksimal posisi per mode per pair
+input bool   EnableSteppedTrailing = true;              // Aktifkan Trailing Bertingkat (0.5 ATR BEP -> Tangga)
 
 //── Trade object ──────────────────────────────────────────────────
 CTrade trade;
 
 //+------------------------------------------------------------------+
-//| Hapus pending orders milik bot (Magic 108888) jika tersisa       |
+//| Cek apakah Magic Number milik sistem Kronos                      |
 //+------------------------------------------------------------------+
-void DeleteAllBotPendingOrders()
+bool IsBotMagic(const long magic)
 {
-    int deleted = 0;
-    for (int i = OrdersTotal() - 1; i >= 0; i--)
-    {
-        ulong ticket = OrderGetTicket(i);
-        if (ticket == 0) continue;
-        if (OrderGetInteger(ORDER_MAGIC) == MagicNumber)
-        {
-            if (trade.OrderDelete(ticket))
-                deleted++;
-        }
-    }
-    if (deleted > 0)
-        Print("Kronos Pure AI: Membersihkan ", deleted, " pending order grid lama milik bot.");
+    return (magic == MagicModeB || magic == MagicModeC || magic == MagicLegacy);
 }
 
 //+------------------------------------------------------------------+
@@ -47,19 +37,16 @@ void DeleteAllBotPendingOrders()
 //+------------------------------------------------------------------+
 int OnInit()
 {
-    trade.SetExpertMagicNumber(MagicNumber);
     trade.SetDeviationInPoints(50);
     trade.SetTypeFilling(ORDER_FILLING_IOC);
 
-    // Bersihkan sisa pending order grid lama milik bot saja (manual 100% aman)
-    DeleteAllBotPendingOrders();
-
-    EventSetTimer(3); // Cek sinyal & kelola trailing bertingkat setiap 3 detik
+    EventSetTimer(2); // Cek sinyal cepat & kelola trailing bertingkat setiap 2 detik
     Print("================================================================");
-    Print("Kronos Pure AI v3.1 (Stepped Trailing Edition — No Grid) Started");
-    Print("Magic Number: ", MagicNumber, " | Max Positions/Pair: ", MaxPositionsPerPair);
+    Print("Kronos Dual-Mode A/B v3.2 (Mode B vs Mode C) Started");
+    Print("Mode B Magic: ", MagicModeB, " | Mode C Magic: ", MagicModeC, " | Legacy: ", MagicLegacy);
+    Print("Max Positions/Pair/Mode: ", MaxPositionsPerMode);
     Print("Trailing Bertingkat: ", (EnableSteppedTrailing ? "AKTIF (0.5 ATR BEP -> Tangga Profit)" : "MATI"));
-    Print("Isolasi Manual: AKTIF (Hanya mengelola Magic ", MagicNumber, ")");
+    Print("Isolasi Manual: AKTIF (Order manual Magic 0 100% tidak disentuh)");
     Print("================================================================");
     return INIT_SUCCEEDED;
 }
@@ -70,7 +57,7 @@ int OnInit()
 void OnDeinit(const int reason)
 {
     EventKillTimer();
-    Print("Kronos Pure AI v3.1 stopped.");
+    Print("Kronos Dual-Mode A/B v3.2 stopped.");
 }
 
 //+------------------------------------------------------------------+
@@ -138,9 +125,9 @@ bool WriteFile(const string filename, const string text)
 }
 
 //+------------------------------------------------------------------+
-//| Hitung posisi milik robot ini (Magic 108888)                     |
+//| Hitung posisi khusus untuk (symbol, magic, pos_type)             |
 //+------------------------------------------------------------------+
-int CountBotPositions(const string sym, const ENUM_POSITION_TYPE pos_type)
+int CountModePositions(const string sym, const long magic, const ENUM_POSITION_TYPE pos_type)
 {
     int count = 0;
     for (int i = 0; i < PositionsTotal(); i++)
@@ -148,7 +135,7 @@ int CountBotPositions(const string sym, const ENUM_POSITION_TYPE pos_type)
         ulong ticket = PositionGetTicket(i);
         if (ticket == 0) continue;
         if (PositionGetString(POSITION_SYMBOL) == sym &&
-            PositionGetInteger(POSITION_MAGIC) == MagicNumber &&
+            PositionGetInteger(POSITION_MAGIC) == magic &&
             PositionGetInteger(POSITION_TYPE) == pos_type)
         {
             count++;
@@ -172,7 +159,9 @@ void ManageSteppedTrailingStop()
     {
         ulong ticket = PositionGetTicket(i);
         if (ticket == 0) continue;
-        if (PositionGetInteger(POSITION_MAGIC) != MagicNumber) continue;
+
+        long pos_magic = PositionGetInteger(POSITION_MAGIC);
+        if (!IsBotMagic(pos_magic)) continue;
 
         string sym        = PositionGetString(POSITION_SYMBOL);
         long   pos_type   = PositionGetInteger(POSITION_TYPE);
@@ -205,6 +194,8 @@ void ManageSteppedTrailingStop()
         }
         if (atr_val <= 0) atr_val = 150 * point;
 
+        string mode_tag = (pos_magic == MagicModeB) ? "[ModeB]" : ((pos_magic == MagicModeC) ? "[ModeC]" : "[Legacy]");
+
         if (pos_type == POSITION_TYPE_BUY)
         {
             double profit_dist = bid - open_price;
@@ -226,7 +217,7 @@ void ManageSteppedTrailingStop()
                 {
                     if (trade.PositionModify(ticket, target_sl, curr_tp))
                     {
-                        Print("Kronos Pure AI: TANGGA TRAILING BUY ", sym, " #", ticket,
+                        Print("Kronos ", mode_tag, ": TANGGA TRAILING BUY ", sym, " #", ticket,
                               " dinaikkan --> ", target_sl, " (Profit: +", DoubleToString(profit_dist / point, 0), " pts)");
                     }
                 }
@@ -253,7 +244,7 @@ void ManageSteppedTrailingStop()
                 {
                     if (trade.PositionModify(ticket, target_sl, curr_tp))
                     {
-                        Print("Kronos Pure AI: TANGGA TRAILING SELL ", sym, " #", ticket,
+                        Print("Kronos ", mode_tag, ": TANGGA TRAILING SELL ", sym, " #", ticket,
                               " dimajukan --> ", target_sl, " (Profit: +", DoubleToString(profit_dist / point, 0), " pts)");
                     }
                 }
@@ -263,7 +254,7 @@ void ManageSteppedTrailingStop()
 }
 
 //+------------------------------------------------------------------+
-//| Main logic — Eksekusi Pure Kronos AI (Tanpa Grid Limit)          |
+//| Main logic — Eksekusi Dual-Mode A/B (Mode B 108882 / C 108883)   |
 //+------------------------------------------------------------------+
 void ProcessSignalFile()
 {
@@ -275,20 +266,27 @@ void ProcessSignalFile()
     double lot_size  = StringToDouble(ExtractField(content, "lot_size"));
     double target    = StringToDouble(ExtractField(content, "target_price"));
     double stop      = StringToDouble(ExtractField(content, "stop_price"));
+    string magic_str = ExtractField(content, "magic");
+    string comment   = ExtractField(content, "comment");
 
     if (direction == "" || pair == "") return;
 
-    Print("Kronos Pure AI: Sinyal diterima | pair=", pair, " dir=", direction,
+    long sig_magic = (magic_str != "") ? StringToInteger(magic_str) : MagicLegacy;
+    if (!IsBotMagic(sig_magic)) sig_magic = MagicLegacy;
+    if (comment == "") comment = "Kronos-AI";
+
+    trade.SetExpertMagicNumber(sig_magic);
+
+    Print("Kronos [", comment, "|", sig_magic, "]: Sinyal | pair=", pair, " dir=", direction,
           " lot=", lot_size, " TP=", target, " SL=", stop);
 
-    int bot_buys      = CountBotPositions(pair, POSITION_TYPE_BUY);
-    int bot_sells     = CountBotPositions(pair, POSITION_TYPE_SELL);
-    int total_bot_pos = bot_buys + bot_sells;
+    int mode_buys      = CountModePositions(pair, sig_magic, POSITION_TYPE_BUY);
+    int mode_sells     = CountModePositions(pair, sig_magic, POSITION_TYPE_SELL);
+    int total_mode_pos = mode_buys + mode_sells;
 
     long ticket       = 0;
     bool order_placed = false;
 
-    // Pastikan simbol aktif di Market Watch
     SymbolSelect(pair, true);
 
     int digits   = (int)SymbolInfoInteger(pair, SYMBOL_DIGITS);
@@ -298,7 +296,7 @@ void ProcessSignalFile()
     MqlTick tick;
     if (!SymbolInfoTick(pair, tick) || tick.bid <= 0 || tick.ask <= 0)
     {
-        Print("Kronos Pure AI: Menunggu harga live untuk ", pair, ". Melewati sinyal ini.");
+        Print("Kronos [", comment, "]: Menunggu harga live untuk ", pair, ". Melewati.");
         FileDelete(SignalFile, FILE_COMMON);
         return;
     }
@@ -310,16 +308,15 @@ void ProcessSignalFile()
     {
         order_placed = true;
     }
-    // Anti-Hedging khusus posisi bot (tidak mempedulikan trade manual)
-    else if ((direction == "long" && bot_sells > 0) || (direction == "short" && bot_buys > 0))
+    // Anti-Hedging terisolasi per mode (Mode B tidak ganggu Mode C, keduanya tidak ganggu manual)
+    else if ((direction == "long" && mode_sells > 0) || (direction == "short" && mode_buys > 0))
     {
-        Print("Kronos Pure AI: Melewati ", direction, " ", pair, " karena ada posisi lawan arah milik bot.");
+        Print("Kronos [", comment, "]: Melewati ", direction, " ", pair, " (ada posisi lawan arah di mode ini).");
         order_placed = true;
     }
-    // Maksimal posisi per pair khusus bot
-    else if (total_bot_pos >= MaxPositionsPerPair)
+    else if (total_mode_pos >= MaxPositionsPerMode)
     {
-        Print("Kronos Pure AI: Maksimal ", MaxPositionsPerPair, " posisi bot untuk ", pair, " sudah aktif. Melewati.");
+        Print("Kronos [", comment, "]: Maksimal ", MaxPositionsPerMode, " posisi untuk ", pair, " di mode ini tercapai.");
         order_placed = true;
     }
     else if (direction == "long")
@@ -327,15 +324,15 @@ void ProcessSignalFile()
         if (bid > 0 && stop >= bid && stop > 0)
             stop = NormalizeDouble(bid - 150 * point, digits);
 
-        if (trade.Buy(lot_size, pair, 0, stop, target, "Kronos-AI"))
+        if (trade.Buy(lot_size, pair, 0, stop, target, comment))
         {
             ticket = (long)trade.ResultOrder();
             order_placed = true;
-            Print("Kronos Pure AI: BUY berhasil dibuka (Layer #", total_bot_pos + 1, ") di ", ask, ". Ticket=", ticket);
+            Print("Kronos [", comment, "]: BUY dibuka (Layer #", total_mode_pos + 1, ") di ", ask, ". Ticket=", ticket);
         }
         else
         {
-            Print("Kronos Pure AI: Gagal BUY ", pair, "! Error: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription());
+            Print("Kronos [", comment, "]: Gagal BUY ", pair, "! Error: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription());
         }
     }
     else if (direction == "short")
@@ -343,15 +340,15 @@ void ProcessSignalFile()
         if (ask > 0 && stop <= ask && stop > 0)
             stop = NormalizeDouble(ask + 150 * point, digits);
 
-        if (trade.Sell(lot_size, pair, 0, stop, target, "Kronos-AI"))
+        if (trade.Sell(lot_size, pair, 0, stop, target, comment))
         {
             ticket = (long)trade.ResultOrder();
             order_placed = true;
-            Print("Kronos Pure AI: SELL berhasil dibuka (Layer #", total_bot_pos + 1, ") di ", bid, ". Ticket=", ticket);
+            Print("Kronos [", comment, "]: SELL dibuka (Layer #", total_mode_pos + 1, ") di ", bid, ". Ticket=", ticket);
         }
         else
         {
-            Print("Kronos Pure AI: Gagal SELL ", pair, "! Error: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription());
+            Print("Kronos [", comment, "]: Gagal SELL ", pair, "! Error: ", trade.ResultRetcode(), " - ", trade.ResultRetcodeDescription());
         }
     }
 
