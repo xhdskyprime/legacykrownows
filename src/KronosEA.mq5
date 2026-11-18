@@ -241,14 +241,20 @@ void ManageSteppedTrailingStop()
         int sell_pos = CountBotPositions(sym, POSITION_TYPE_SELL);
         if ((buy_pos + sell_pos) > 1) continue;
 
+        // Pilih ulang ticket karena CountBotPositions() mengubah posisi terpilih
+        if (!PositionSelectByTicket(ticket)) continue;
+
         long   pos_type   = PositionGetInteger(POSITION_TYPE);
         double open_price = PositionGetDouble(POSITION_PRICE_OPEN);
         double curr_sl    = PositionGetDouble(POSITION_SL);
         double curr_tp    = PositionGetDouble(POSITION_TP);
         int    digits     = (int)SymbolInfoInteger(sym, SYMBOL_DIGITS);
         double point      = SymbolInfoDouble(sym, SYMBOL_POINT);
-        double bid        = SymbolInfoDouble(sym, SYMBOL_BID);
-        double ask        = SymbolInfoDouble(sym, SYMBOL_ASK);
+
+        MqlTick tick;
+        if (!SymbolInfoTick(sym, tick) || tick.bid <= 0 || tick.ask <= 0) continue;
+        double bid        = tick.bid;
+        double ask        = tick.ask;
 
         // Dapatkan nilai ATR H1 live
         double atr_val = 0.0;
