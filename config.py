@@ -1,8 +1,8 @@
 # config.py
 # Central configuration file for Kronos AI Auto-Trader.
-# Kronos Hybrid AI-Grid v3.0 (Stepped Trailing + Adaptive Pullback Grid)
+# Kronos Pure AI v3.1 (Stepped Trailing Edition — No Grid, Isolated Magic 108888)
 # 28 High-Volume Instruments on Exness Cent Account (USC) with 'c' symbol suffix.
-# Multi-Asset Portfolio: Commodities, High-Volatility Crosses, Majors & Crypto.
+# Multi-Asset Portfolio: Gold, Oil, High-Volatility Crosses, Majors & Crypto.
 
 import os as _os
 import platform as _platform
@@ -54,7 +54,7 @@ LOT_SIZE = {p["name"]: p["lot"] for p in ACTIVE_PAIRS}
 SPREAD_USD = {p["name"]: p["spread"] for p in ACTIVE_PAIRS}
 PAIR_DIGITS = {p["name"]: p["digits"] for p in ACTIVE_PAIRS}
 
-# ── Max Layering per Pair (Hybrid AI-Grid: Layer 1 Market + Layer 2 Dip Limit) ──
+# ── Max Layering per Pair (Golden Setup: Pure Kronos AI Max 2 Positions) ──
 MAX_POSITIONS_PER_PAIR = 2
 
 # ── News Filter ──

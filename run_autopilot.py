@@ -186,7 +186,7 @@ def scan_pair(predictor, pair_info):
 
 def main():
     print("=" * 78)
-    print("KRONOS HYBRID AI-GRID v3.0 - PRODUCTION ENGINE")
+    print("KRONOS PURE AI v3.1 (STEPPED TRAILING EDITION) - PRODUCTION ENGINE")
     print("=" * 78)
 
     if not mt5.initialize():
@@ -196,10 +196,10 @@ def main():
     acc = mt5.account_info()
     print(f"Akun MT5:          Login {acc.login} ({acc.server})")
     print(f"Saldo:             ${acc.balance:,.2f} {acc.currency}")
-    print(f"Jumlah Pair:       {len(ACTIVE_PAIRS)} Pair Aktif")
-    print(f"Maksimal Layer:    {MAX_POSITIONS_PER_PAIR} Layer (Hybrid AI-Grid: Market L1 + Dip Limit L2)")
-    print(f"Basket Close:      Aktif di MT5 (Auto Close Keranjang saat Target Profit Tercapai)")
-    print(f"Trailing Stop:     Aktif di MT5 (Lock BEP + Trail Single Moves)")
+    print(f"Jumlah Pair:       {len(ACTIVE_PAIRS)} Pair Aktif (Termasuk XAUUSDc)")
+    print(f"Mode Eksekusi:     Pure Kronos AI Market (Tanpa Grid Limit | Max {MAX_POSITIONS_PER_PAIR} Posisi/Pair)")
+    print(f"Isolasi Manual:    Aktif (Khusus Magic 108888, trade manual 100% aman)")
+    print(f"Trailing Stop:     Aktif di MT5 (Stepped: 0.5 ATR BEP -> Tangga Profit)")
     print(f"News Filter:       {'Aktif' if ENABLE_NEWS_FILTER else 'Mati (24/7 Trading)'}")
     print("-" * 78)
 
